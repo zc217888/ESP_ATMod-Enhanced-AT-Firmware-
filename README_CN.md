@@ -647,7 +647,7 @@ AT+MQTTUSERCFG=<LinkID>,<scheme>,<"client_id">,<"username">,<"password">,<cert_k
 
 **示例：**
 ```
-AT+MQTTUSERCFG=0,1,"f9abbcca015846d69bc392a6c3187216","user","pass",0,0,"",1883
+AT+MQTTUSERCFG=0,1,"your_client_id","user","pass",0,0,"",1883
 ```
 
 **响应：**
