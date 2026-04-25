@@ -926,7 +926,7 @@ AT+CWJAP="MyWiFi","password"
 # OK
 
 # Step 2: Configure MQTT (note: port is required at the end!)
-AT+MQTTUSERCFG=0,1,"f9abbcca015846d69bc392a6c3187216","f9abbcca015846d69bc392a6c3187216","",0,0,"",9501
+AT+MQTTUSERCFG=0,1,"your_client_id","your_username","",0,0,"",9501
 # OK
 
 # Step 3: Connect to MQTT broker

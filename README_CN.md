@@ -876,7 +876,7 @@ AT+CWJAP="MyWiFi","password"
 # OK
 
 # 第 2 步：配置 MQTT（注意：最后必须有端口号！）
-AT+MQTTUSERCFG=0,1,"f9abbcca015846d69bc392a6c3187216","f9abbcca015846d69bc392a6c3187216","",0,0,"",9501
+AT+MQTTUSERCFG=0,1,"your_client_id","your_username","",0,0,"",9501
 # OK
 
 # 第 3 步：连接到 MQTT 代理
