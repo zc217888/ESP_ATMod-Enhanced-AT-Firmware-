@@ -22,6 +22,7 @@
 #include "Arduino.h"
 #include "ESP8266WiFi.h"
 #include <PolledTimeout.h>
+#include <PubSubClient.h>
 
 #include "sntp.h"
 #include <time.h>
@@ -136,7 +137,14 @@ static const commandDef_t commandList[] = {
 	{"+CIPSSLCERT", MODE_NO_CHECKING, CMD_AT_CIPSSLCERT},
 	{"+CIPSSLMFLN", MODE_QUERY_SET, CMD_AT_CIPSSLMFLN},
 	{"+CIPSSLSTA", MODE_NO_CHECKING, CMD_AT_CIPSSLSTA},
-	{"+SNTPTIME?", MODE_EXACT_MATCH, CMD_AT_SNTPTIME}};
+	{"+SNTPTIME?", MODE_EXACT_MATCH, CMD_AT_SNTPTIME},
+
+	// MQTT Commands
+	{"+MQTTUSERCFG", MODE_QUERY_SET, CMD_AT_MQTTUSERCFG},
+	{"+MQTTCONN", MODE_QUERY_SET, CMD_AT_MQTTCONN},
+	{"+MQTTPUB", MODE_NO_CHECKING, CMD_AT_MQTTPUB},
+	{"+MQTTSUB", MODE_QUERY_SET, CMD_AT_MQTTSUB},
+	{"+MQTTUNSUB", MODE_QUERY_SET, CMD_AT_MQTTUNSUB}};
 
 /*
  * Static functions
@@ -219,6 +227,13 @@ static void cmd_AT_CIPSSLCERT();
 static void cmd_AT_CIPSSLMFLN();
 static void cmd_AT_CIPSSLSTA();
 static void cmd_AT_SNTPTIME();
+
+// MQTT Commands
+static void cmd_AT_MQTTUSERCFG();
+static void cmd_AT_MQTTCONN();
+static void cmd_AT_MQTTPUB();
+static void cmd_AT_MQTTSUB();
+static void cmd_AT_MQTTUNSUB();
 
 /*
  * Processes the command buffer
@@ -448,6 +463,26 @@ void processCommandBuffer(void)
 	// ------------------------------------------------------------------------------------ AT+SNTPTIME?
 	else if (cmd == CMD_AT_SNTPTIME) // AT+SNTPTIME? - get time
 		cmd_AT_SNTPTIME();
+
+	// ------------------------------------------------------------------------------------ AT+MQTTUSERCFG
+	else if (cmd == CMD_AT_MQTTUSERCFG) // Configure MQTT connection
+		cmd_AT_MQTTUSERCFG();
+
+	// ------------------------------------------------------------------------------------ AT+MQTTCONN
+	else if (cmd == CMD_AT_MQTTCONN) // Connect/Disconnect MQTT
+		cmd_AT_MQTTCONN();
+
+	// ------------------------------------------------------------------------------------ AT+MQTTPUB
+	else if (cmd == CMD_AT_MQTTPUB) // Publish message
+		cmd_AT_MQTTPUB();
+
+	// ------------------------------------------------------------------------------------ AT+MQTTSUB
+	else if (cmd == CMD_AT_MQTTSUB) // Subscribe topic
+		cmd_AT_MQTTSUB();
+
+	// ------------------------------------------------------------------------------------ AT+MQTTUNSUB
+	else if (cmd == CMD_AT_MQTTUNSUB) // Unsubscribe topic
+		cmd_AT_MQTTUNSUB();
 
 	else
 	{
@@ -3875,5 +3910,626 @@ void printScanResult(int networksFound)
 
 		// Print the sorted networks
 		printCWLAP(indices, sizeof(indices) / sizeof(indices[0]));
+	}
+}
+
+/*********************************************************************************************
+ * MQTT Commands Implementation
+ */
+
+/*
+ * MQTT Callback - called when a message is received on a subscribed topic
+ */
+void mqttCallback(char* topic, byte* payload, unsigned int length)
+{
+	// Forward received message to serial output
+	Serial.print(F("\r\n+MMTTSUBRECV:"));
+	Serial.print((char*)topic);
+	Serial.print(',');
+	Serial.println(length);
+	
+	// Print payload
+	Serial.write(payload, length);
+	Serial.print(F("\r\n\r\nOK"));
+}
+
+/*
+ * AT+MQTTUSERCFG - Configure MQTT connection parameters
+ * Format: AT+MQTTUSERCFG=<LinkID>,<scheme>,<"client_id">,<"username">,<"password">,<cert_key_ID>,<CA_ID>,<path>,<port>
+ * Simplified: AT+MQTTUSERCFG=<LinkID>,<scheme>,<"client_id">,<"username">,<"password">,0,0,"",<port>
+ * LinkID: always 0 for now
+ * scheme: 1=TCP, 2=TCPS (not supported yet), 3=SSL (not supported yet)
+ */
+void cmd_AT_MQTTUSERCFG()
+{
+	uint16_t offset = 14; // offset to ? or =
+
+	if (inputBuffer[offset] == '?' && inputBufferCnt == offset + 3)
+	{
+		// Query current configuration
+		Serial.print(F("+MQTTUSERCFG:0,1,\""));
+		Serial.print(gsMqttConfig.clientId);
+		Serial.print(F("\",\""));
+		Serial.print(gsMqttConfig.username);
+		Serial.print(F("\",\""));
+		Serial.print(gsMqttConfig.password.length() > 0 ? "******" : "");
+		Serial.print(F("\",0,0,\"\","));
+		Serial.print(gsMqttConfig.port);
+		Serial.println('"');
+		Serial.printf_P(MSG_OK);
+	}
+	else if (inputBuffer[offset] == '=')
+	{
+		bool error = true;
+		uint16_t off = offset + 1;
+
+		do
+		{
+			uint32_t linkId, scheme;
+			String clientId, username, password, certKey, caId, path;
+			uint32_t port = 1883;
+
+			// Link ID (must be 0)
+			if (!readNumber(inputBuffer, off, linkId) || linkId != 0 || inputBuffer[off] != ',')
+				break;
+
+			off++;
+
+			// Scheme (1=TCP)
+			if (!readNumber(inputBuffer, off, scheme) || scheme > 3 || inputBuffer[off] != ',')
+				break;
+
+			off++;
+
+			// Client ID
+			clientId = readStringFromBuffer(inputBuffer, off, true);
+			if (clientId.isEmpty() || inputBuffer[off] != ',')
+				break;
+
+			off++;
+
+			// Username
+			username = readStringFromBuffer(inputBuffer, off, true);
+			if (inputBuffer[off] != ',')
+				break;
+
+			off++;
+
+			// Password
+			password = readStringFromBuffer(inputBuffer, off, true, true);
+			if (inputBuffer[off] != ',')
+				break;
+
+			off++;
+
+			// Cert Key ID (ignored, must be 0)
+			if (!readNumber(inputBuffer, off, linkId) || inputBuffer[off] != ',')
+				break;
+
+			off++;
+
+			// CA ID (ignored, must be 0)
+			if (!readNumber(inputBuffer, off, linkId) || inputBuffer[off] != ',')
+				break;
+
+			off++;
+
+			// Path (ignored)
+			path = readStringFromBuffer(inputBuffer, off, true, true);
+			if (inputBuffer[off] != ',')
+				break;
+
+			off++;
+
+			// Port
+			if (!readNumber(inputBuffer, off, port) || port > 65535 || inputBufferCnt != off + 2)
+				break;
+
+			// Save configuration
+			gsMqttConfig.clientId = clientId;
+			gsMqttConfig.username = username;
+			gsMqttConfig.password = password;
+			gsMqttConfig.port = port;
+			gsMqttConfig.protocol = 1; // Default to MQTT 3.1.1
+			gsMqttConfig.keepalive = 60;
+			gsMqttConfig.disable_clean_session = 0;
+			gsMqttConfig.server = ""; // Will be set by MQTTCONN
+
+			error = false;
+
+		} while (0);
+
+		if (error)
+			Serial.printf_P(MSG_ERROR);
+		else
+			Serial.printf_P(MSG_OK);
+	}
+	else
+	{
+		Serial.printf_P(MSG_ERROR);
+	}
+}
+
+/*
+ * AT+MQTTCONN - Connect or Disconnect from MQTT broker
+ * Format: AT+MQTTCONN=<LinkID>,<host>,<port>  (connect)
+ *         AT+MQTTCONN=<LinkID>,0              (disconnect)
+ */
+void cmd_AT_MQTTCONN()
+{
+	uint16_t offset = 11; // offset to ? or =
+
+	if (inputBuffer[offset] == '?' && inputBufferCnt == offset + 3)
+	{
+		// Query connection status
+		Serial.print(F("+MQTTCONN:"));
+		Serial.println(gsMqttConnected ? "1" : "0");
+		Serial.printf_P(MSG_OK);
+	}
+	else if (inputBuffer[offset] == '=')
+	{
+		bool error = true;
+		uint16_t off = offset + 1;
+
+		do
+		{
+			uint32_t linkId;
+
+			if (!readNumber(inputBuffer, off, linkId) || linkId != 0 || inputBuffer[off] != ',')
+				break;
+
+			off++;
+
+			// Check if this is a disconnect command (port=0 or host="0")
+			if (inputBuffer[off] == '0' && inputBufferCnt == off + 2)
+			{
+				// Disconnect
+				if (gsMqttConnected && gsMqttPubSub)
+				{
+					gsMqttPubSub->disconnect();
+					delete gsMqttPubSub;
+					gsMqttPubSub = nullptr;
+					gsMqttConnected = false;
+					gsMqttSubscriptionCount = 0;
+					
+					// Clear all subscriptions
+					for (uint8_t i = 0; i < MAX_MQTT_SUBSCRIPTIONS; i++)
+					{
+						gsMqttSubscriptions[i].topic = "";
+						gsMqttSubscriptions[i].qos = 0;
+					}
+				}
+
+				Serial.println(F("CLOSED"));
+				error = false;
+				break;
+			}
+
+			// Connect command - parse host and port
+			String host;
+			uint32_t port = 0;
+
+			host = readStringFromBuffer(inputBuffer, off, false);
+			
+			if (host.isEmpty())
+				break;
+
+			if (inputBuffer[off] == ',')
+			{
+				off++;
+				if (!readNumber(inputBuffer, off, port))
+					break;
+			}
+
+			if (port == 0)
+				port = gsMqttConfig.port;
+			if (port == 0)
+				port = 1883;
+
+			if (inputBufferCnt != off + 2)
+				break;
+
+			// Check WiFi connection
+			if (!WiFi.isConnected())
+			{
+				Serial.println(F("no ip"));
+				break;
+			}
+
+			// If already connected, disconnect first
+			if (gsMqttConnected && gsMqttPubSub)
+			{
+				gsMqttPubSub->disconnect();
+				delete gsMqttPubSub;
+				gsMqttPubSub = nullptr;
+				gsMqttConnected = false;
+			}
+
+			// Create new PubSubClient
+			gsMqttPubSub = new PubSubClient(gsMqttClient);
+			
+			if (gsMqttPubSub == nullptr)
+			{
+			 Serial.println(F("out of memory"));
+				break;
+			}
+
+			// Set server and callback
+			gsMqttPubSub->setServer(host.c_str(), port);
+			gsMqttPubSub->setCallback(mqttCallback);
+
+			// Set connection parameters
+			gsMqttConfig.server = host;
+			gsMqttConfig.port = port;
+
+			// Attempt connection
+			const char* user = gsMqttConfig.username.length() > 0 ? gsMqttConfig.username.c_str() : nullptr;
+			const char* pass = gsMqttConfig.password.length() > 0 ? gsMqttConfig.password.c_str() : nullptr;
+			const char* clientId = gsMqttConfig.clientId.length() > 0 ? gsMqttConfig.clientId.c_str() : "ESP8266";
+
+			String willTopic = "";
+			
+			bool connected = gsMqttPubSub->connect(clientId, user, pass, 
+				willTopic.length() > 0 ? willTopic.c_str() : nullptr, 
+				0, false, nullptr);
+
+			if (connected)
+			{
+				gsMqttConnected = true;
+				
+				// Re-subscribe to previous topics
+				for (uint8_t i = 0; i < gsMqttSubscriptionCount; i++)
+				{
+					if (gsMqttSubscriptions[i].topic.length() > 0)
+					{
+						gsMqttPubSub->subscribe(gsMqttSubscriptions[i].topic.c_str(), gsMqttSubscriptions[i].qos);
+					}
+				}
+				
+				Serial.println(F("\r\nCONNECT\r\n\r\nOK"));
+				error = false;
+			}
+			else
+			{
+				delete gsMqttPubSub;
+				gsMqttPubSub = nullptr;
+				Serial.println(F("ERROR")); // PubSubClient connect failed
+			}
+
+		} while (0);
+
+		if (error)
+			Serial.printf_P(MSG_ERROR);
+	}
+	else
+	{
+		Serial.printf_P(MSG_ERROR);
+	}
+}
+
+/*
+ * AT+MQTTPUB - Publish message to topic
+ * Format: AT+MQTTPUB=<LinkID>,<"topic">,"data",<qos>,<retain>
+ * After OK, enter data mode (like CIPSEND)
+ */
+void cmd_AT_MQTTPUB()
+{
+	uint16_t offset = 10; 
+	uint8_t error = 1;
+
+	do
+	{
+		uint32_t linkId, qos = 0, retain = 0;
+		String topic;
+		uint16_t off;
+
+		if (inputBuffer[offset] != '=')
+			break;
+
+		off = offset + 1;
+
+		// Link ID (must be 0)
+		if (!readNumber(inputBuffer, off, linkId) || linkId != 0 || inputBuffer[off] != ',')
+			break;
+
+		off++;
+
+		// Topic
+		topic = readStringFromBuffer(inputBuffer, off, true);
+		if (topic.isEmpty() || inputBuffer[off] != ',')
+			break;
+
+		off++;
+
+		// Data length (for data mode) or inline data
+		// We'll use data mode like CIPSEND
+		uint32_t dataLen = 0;
+		
+		if (inputBuffer[off] == '"')
+		{
+			// Inline data mode (not supported, use data mode)
+			break;
+		}
+		else
+		{
+			// Read data length
+			if (!readNumber(inputBuffer, off, dataLen) || dataLen > MAX_MQTT_PUBLISH_DATA)
+				break;
+
+			if (inputBuffer[off] == ',')
+			{
+				off++;
+				if (!readNumber(inputBuffer, off, qos) || qos > 2)
+					break;
+
+				if (inputBuffer[off] == ',')
+				{
+					off++;
+					if (!readNumber(inputBuffer, off, retain) || retain > 1)
+						break;
+				}
+			}
+
+			if (inputBufferCnt != off + 2)
+				break;
+		}
+
+		// Check MQTT connection
+		if (!gsMqttConnected || !gsMqttPubSub || !gsMqttPubSub->connected())
+		{
+			Serial.println(F("ERROR: Not connected to MQTT"));
+			break;
+		}
+
+		// Allocate buffer for publish data
+		if (gsMqttPublishData != nullptr)
+			delete[] gsMqttPublishData;
+
+		gsMqttPublishData = new char[dataLen + 1];
+		
+		if (gsMqttPublishData == nullptr)
+		{
+			Serial.println(F("out of memory"));
+			break;
+		}
+
+		gsMqttPublishDataLen = dataLen;
+		gsMqttPublishDataRead = 0;
+		gsMqttPublishing = true;
+		gsMqttSubscriptions[0].topic = topic; // Temporary store topic
+		gsMqttSubscriptions[0].qos = qos;     // Temporary store QOS
+
+		error = 0;
+
+	} while (0);
+
+	if (error == 1)
+		Serial.printf_P(MSG_ERROR);
+	else if (error == 0)
+	{
+		Serial.printf_P(MSG_OK);
+		Serial.print('>');
+	}
+}
+
+/*
+ * Process completed MQTT publish data
+ */
+void processMqttPublishData()
+{
+	if (!gsMqttPublishing || gsMqttPublishData == nullptr || !gsMqttConnected || !gsMqttPubSub)
+		return;
+
+	String topic = gsMqttSubscriptions[0].topic;
+	uint8_t qos = gsMqttSubscriptions[0].qos;
+	bool retain = false;
+
+	// Publish message
+	bool result = gsMqttPubSub->publish(topic.c_str(), (uint8_t*)gsMqttPublishData, gsMqttPublishDataLen, retain);
+
+	// Cleanup
+	delete[] gsMqttPublishData;
+	gsMqttPublishData = nullptr;
+	gsMqttPublishing = false;
+	gsMqttPublishDataLen = 0;
+	gsMqttPublishDataRead = 0;
+
+	if (result)
+	{
+		Serial.println(F("\r\nSEND OK"));
+	}
+	else
+	{
+		Serial.println(F("\r\nSEND FAIL"));
+	}
+}
+
+/*
+ * AT+MQTTSUB - Subscribe to topic
+ * Format: AT+MQTTSUB=<LinkID>,<"topic">,<QoS>
+ */
+void cmd_AT_MQTTSUB()
+{
+	uint16_t offset = 11; 
+
+	if (inputBuffer[offset] == '=')
+	{
+		bool error = true;
+		uint16_t off = offset + 1;
+
+		do
+		{
+			uint32_t linkId, qos = 0;
+			String topic;
+
+			// Link ID
+			if (!readNumber(inputBuffer, off, linkId) || linkId != 0 || inputBuffer[off] != ',')
+				break;
+
+			off++;
+
+			// Topic
+			topic = readStringFromBuffer(inputBuffer, off, true);
+			if (topic.isEmpty() || inputBuffer[off] != ',')
+				break;
+
+			off++;
+
+			// QoS
+			if (!readNumber(inputBuffer, off, qos) || qos > 2 || inputBufferCnt != off + 2)
+				break;
+
+			// Check MQTT connection
+			if (!gsMqttConnected || !gsMqttPubSub || !gsMqttPubSub->connected())
+			{
+				Serial.println(F("ERROR: Not connected to MQTT"));
+				break;
+			}
+
+			// Check subscription limit
+			if (gsMqttSubscriptionCount >= MAX_MQTT_SUBSCRIPTIONS)
+			{
+				Serial.println(F("max subscriptions reached"));
+				break;
+			}
+
+			// Check for duplicate
+			for (uint8_t i = 0; i < gsMqttSubscriptionCount; i++)
+			{
+				if (gsMqttSubscriptions[i].topic == topic)
+				{
+					// Update existing subscription
+					gsMqttSubscriptions[i].qos = qos;
+					
+					if (gsMqttPubSub->subscribe(topic.c_str(), qos))
+					{
+						Serial.printf_P(PSTR("\r\n+MQTTSUB:1\r\n"));
+						Serial.printf_P(MSG_OK);
+						error = false;
+					}
+					else
+					{
+						Serial.println(F("subscribe failed"));
+					}
+					
+					break;
+				}
+			}
+
+			if (error == 0)
+				break;
+
+			// Add new subscription
+			if (gsMqttPubSub->subscribe(topic.c_str(), qos))
+			{
+				gsMqttSubscriptions[gsMqttSubscriptionCount].topic = topic;
+				gsMqttSubscriptions[gsMqttSubscriptionCount].qos = qos;
+				gsMqttSubscriptionCount++;
+
+				Serial.printf_P(PSTR("\r\n+MQTTSUB:1\r\n"));
+				Serial.printf_P(MSG_OK);
+				error = false;
+			}
+			else
+			{
+				Serial.println(F("subscribe failed"));
+			}
+
+		} while (0);
+
+		if (error)
+			Serial.printf_P(MSG_ERROR);
+	}
+	else
+	{
+		Serial.printf_P(MSG_ERROR);
+	}
+}
+
+/*
+ * AT+MQTTUNSUB - Unsubscribe from topic
+ * Format: AT+MQTTUNSUB=<LinkID>,<"topic">
+ */
+void cmd_AT_MQTTUNSUB()
+{
+	uint16_t offset = 13; 
+
+	if (inputBuffer[offset] == '=')
+	{
+		bool error = true;
+		uint16_t off = offset + 1;
+
+		do
+		{
+			uint32_t linkId;
+			String topic;
+
+			// Link ID
+			if (!readNumber(inputBuffer, off, linkId) || linkId != 0 || inputBuffer[off] != ',')
+				break;
+
+			off++;
+
+			// Topic
+			topic = readStringFromBuffer(inputBuffer, off, true);
+			if (topic.isEmpty() || inputBufferCnt != off + 2)
+				break;
+
+			// Check MQTT connection
+			if (!gsMqttConnected || !gsMqttPubSub || !gsMqttPubSub->connected())
+			{
+				Serial.println(F("ERROR: Not connected to MQTT"));
+				break;
+			}
+
+			// Find and remove subscription
+			bool found = false;
+			for (uint8_t i = 0; i < gsMqttSubscriptionCount; i++)
+			{
+				if (gsMqttSubscriptions[i].topic == topic)
+				{
+					// Unsubscribe via MQTT
+					if (gsMqttPubSub->unsubscribe(topic.c_str()))
+					{
+						// Remove from list
+						for (uint8_t j = i; j < gsMqttSubscriptionCount - 1; j++)
+						{
+							gsMqttSubscriptions[j] = gsMqttSubscriptions[j + 1];
+						}
+						
+						gsMqttSubscriptionCount--;
+						gsMqttSubscriptions[gsMqttSubscriptionCount].topic = "";
+						gsMqttSubscriptions[gsMqttSubscriptionCount].qos = 0;
+
+						Serial.printf_P(PSTR("\r\n+MQTTUNSUB:1\r\n"));
+						Serial.printf_P(MSG_OK);
+						found = true;
+					}
+					else
+					{
+						Serial.println(F("unsubscribe failed"));
+					}
+					
+					break;
+				}
+			}
+
+			if (!found && error)
+			{
+				Serial.println(F("subscription not found"));
+			}
+			else if (found)
+			{
+				error = false;
+			}
+
+		} while (0);
+
+		if (error)
+			Serial.printf_P(MSG_ERROR);
+	}
+	else
+	{
+		Serial.printf_P(MSG_ERROR);
 	}
 }

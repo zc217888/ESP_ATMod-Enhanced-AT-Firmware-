@@ -106,6 +106,12 @@ enum commands_t
 	CMD_AT_CIPSSLMFLN,	  // New command
 	CMD_AT_CIPSSLSTA,	  // New command
 	CMD_AT_SNTPTIME,	  // New command
+	// MQTT Commands
+	CMD_AT_MQTTUSERCFG,  // MQTT configuration
+	CMD_AT_MQTTCONN,      // Connect/Disconnect MQTT
+	CMD_AT_MQTTPUB,       // Publish message
+	CMD_AT_MQTTSUB,       // Subscribe topic
+	CMD_AT_MQTTUNSUB      // Unsubscribe topic
 };
 
 /*

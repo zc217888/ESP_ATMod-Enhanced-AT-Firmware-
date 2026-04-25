@@ -1,8 +1,33 @@
-# ESP 8266 AT Firmware - modified for TLS 1.2
+<p align="center">
+  <a href="README_CN.md">中文</a> | English
+</p>
 
-This firmware comes as an [Arduino esp8266](https://github.com/esp8266/Arduino#arduino-on-esp8266) sketch.
+# ESP_ATMod+ (Enhanced AT Firmware for ESP8266)
 
-This file refers to version 0.5.0 of the firmware.
+[![License: LGPL-2.1](https://img.shields.io/badge/License-LGPL--2.1-blue.svg)](LICENSE)
+[![PlatformIO](https://badges.registry.platformio.org/packages/espressif8266/board/esp01_1m.svg)](https://platformio.org/lib/show/11992/ESP_ATMod)
+[![Arduino Version](https://img.shields.io/badge/Arduino-3.0%2B-green.svg)](https://github.com/esp8266/Arduino)
+[![MQTT Support](https://img.shields.io/badge/MQTT-3.1.1-orange.svg)](https://mqtt.org/)
+
+**Enhanced ESP8266 AT firmware with modern TLS 1.2 + MQTT 3.1.1 support**
+
+This firmware comes as an [Arduino ESP8266](https://github.com/esp8266/Arduino#arduino-on-esp8266) sketch.
+
+**Version:** 0.6.0 (with MQTT support)
+
+---
+
+## Table of Contents
+
+- [Purpose](#purpose)
+- [Features](#features)
+- [Installation](#installation)
+- [AT Command List](#at-command-list)
+- [MQTT Commands](#mqtt-at-commands) ⭐ NEW
+- [Examples](#complete-example)
+- [Notes](#notes)
+
+---
 
 ## Purpose
 
@@ -10,7 +35,30 @@ The AT firmware provided by Espressif comes with basic TLS ciphersuites only. Es
 
 **The goal was to enable all modern ciphersuites implemented in BearSSL library included in esp8266/Arduino project including with some server authentication (server certificate checking).**
 
+**Additionally, this enhanced version adds MQTT 3.1.1 protocol support for IoT messaging, which is not available in the original ESP AT firmware.**
+
 The firmware fits into 1024 KB flash and can be run even on ESP-01 module with 8 Mbit flash.
+
+## Features
+
+### TLS Security (Original)
+- ✅ Modern TLS 1.2 ciphersuites (including GCM)
+- ✅ Certificate fingerprint verification
+- ✅ Certificate chain verification
+- ✅ TLS MFLN extension support (RFC 3546)
+
+### MQTT Protocol (NEW ⭐)
+- ✅ MQTT 3.1.1 protocol via [PubSubClient](https://github.com/knolleary/PubSubClient)
+- ✅ Username/Password authentication
+- ✅ QoS 0, 1, 2 support
+- ✅ Up to 8 simultaneous topic subscriptions
+- ✅ Max publish size: 2048 bytes per message
+- ✅ Auto resubscribe on reconnection
+
+### Hardware Compatibility
+- **Target**: ESP8266 (especially ESP-01 with 1MB Flash)
+- **Connections**: Up to 5 simultaneous TCP/TLS connections (multiplex mode)
+- **Memory**: Optimized for low RAM devices
 
 ## Description
 
@@ -148,6 +196,12 @@ AT commands with _DEF and _CUR have (as in the standard AT firmware) an undocume
 | [AT+CIPSSLMFLN](https://github.com/JiriBilek/ESP_ATMod#atcipsslmfln---checks-if-the-given-site-supports-the-mfln-tls-extension) | Check if the site supports Maximum Fragment Length Negotiation (MFLN). |
 | [AT+CIPSSLSTA](https://github.com/JiriBilek/ESP_ATMod#atcipsslsta---checks-the-status-of-the-mfln-negotiation) | Prints the MFLN status of a connection. |
 | [AT+SNTPTIME](https://github.com/JiriBilek/ESP_ATMod#atsystime---returns-the-current-time-utc) | Get SNTP time. |
+| [**MQTT AT Commands**](#mqtt-at-commands) |  |
+| [AT+MQTTUSERCFG](#at-mqttusercfg--configure-mqtt-connection) | Configure MQTT connection parameters (client ID, username, password, port). |
+| [AT+MQTTCONN](#at-mqttconn--connect-or-disconnect-mqtt-broker) | Connect to or disconnect from MQTT broker. |
+| [AT+MQTTPUB](#at-mqttpub--publish-message) | Publish message to a topic. |
+| [AT+MQTTSUB](#at-mqttsub--subscribe-to-topic) | Subscribe to a topic. |
+| [AT+MQTTUNSUB](#at-mqttunsub--unsubscribe-from-topic) | Unsubscribe from a topic. |
 | [**New Ethernet AT Commands**](https://docs.espressif.com/projects/esp-at/en/latest/esp32/AT_Command_Set/Ethernet_AT_Commands.html) |  |
 | AT+CIPETHMAC_CUR | Sets or prints the MAC Address of the Ethernet interface. |
 | AT+CIPETHMAC_DEF | Sets or prints the MAC Address of the Ethernet interface stored in flash. Save to flash is not implemented. |
@@ -579,3 +633,359 @@ If the current time is unknown, an error message is returned.
 These commands support use of the Ethernet interface as in standard AT firmware version 2 and newer.
 
 These commands for the Ethernet interface are analogous to AT+CIPSTA, AT+CIPSTAMAC and AT+CWHOSTNAME commands.
+
+## MQTT AT Commands
+
+This firmware supports MQTT 3.1.1 protocol via [PubSubClient](https://github.com/knolleary/PubSubClient) library. MQTT allows IoT devices to publish and subscribe to topics for lightweight messaging.
+
+### Features
+
+- **Protocol**: MQTT 3.1.1
+- **Authentication**: Username/Password support
+- **QoS**: Support QoS 0, 1, 2
+- **Max Subscriptions**: Up to 8 simultaneous topic subscriptions
+- **Max Publish Size**: 2048 bytes per message
+- **Auto Resubscribe**: Automatically re-subscribes to topics after reconnection
+
+### Usage Flow
+
+```
+1. Connect to WiFi (AT+CWJAP)
+2. Configure MQTT parameters (AT+MQTTUSERCFG)
+3. Connect to broker (AT+MQTTCONN)
+4. Subscribe to topics (AT+MQTTSUB)
+5. Publish messages (AT+MQTTPUB)
+6. Disconnect when done (AT+MQTTCONN=0)
+```
+
+### **AT+MQTTUSERCFG - Configure MQTT Connection**
+
+Configure MQTT connection parameters including client ID, username, password, and port. Must be called before connecting.
+
+**Query current configuration:**
+
+*Command:*
+```
+AT+MQTTUSERCFG?
+```
+
+*Answer:*
+```
++MQTTUSERCFG:0,1,"client001","username","******",0,0,"",1883
+
+OK
+```
+
+**Set configuration:**
+
+*Command:*
+```
+AT+MQTTUSERCFG=<LinkID>,<scheme>,<"client_id">,<"username">,<"password">,<cert_key_ID>,<CA_ID>,<path>,<port>
+```
+
+| Parameter | Description | Example |
+| - | - | - |
+| LinkID | Link ID (must be 0) | 0 |
+| scheme | Connection scheme (1=TCP) | 1 |
+| client_id | Client identifier string | "ESP8266_001" |
+| username | Username for authentication | "user123" or "" |
+| password | Password for authentication | "pass456" or "" |
+| cert_key_ID | Certificate key ID (reserved, use 0) | 0 |
+| CA_ID | CA certificate ID (reserved, use 0) | 0 |
+| path | Path (reserved, use "") | "" |
+| port | MQTT broker port number | 1883 or 9501 |
+
+*Example:*
+```
+AT+MQTTUSERCFG=0,1,"f9abbcca015846d69bc392a6c3187216","user","pass",0,0,"",1883
+```
+
+*Answer:*
+```
+
+OK
+```
+
+### **AT+MQTTCONN - Connect or Disconnect MQTT Broker**
+
+Connect to an MQTT broker or disconnect from it.
+
+**Query connection status:**
+
+*Command:*
+```
+AT+MQTTCONN?
+```
+
+*Answer:*
+```
++MQTTCONN:1
+
+OK
+```
+(returns `1` if connected, `0` if disconnected)
+
+**Connect to broker:**
+
+*Command:*
+```
+AT+MQTTCONN=<LinkID>,<host>,<port>
+```
+
+| Parameter | Description | Example |
+| - | - | - |
+| LinkID | Link ID (must be 0) | 0 |
+| host | Broker hostname or IP address | "broker.emqx.io" |
+| port | Broker port (optional, uses config if omitted) | 1883 |
+
+*Example:*
+```
+AT+MQTTCONN=0,"bemfa.com",9501
+```
+
+*Answer (success):*
+```
+
+CONNECT
+
+OK
+```
+
+*Answer (error):*
+```
+no ip           # WiFi not connected
+ERROR           # Connection failed
+out of memory   # Memory allocation failed
+```
+
+**Disconnect from broker:**
+
+*Command:*
+```
+AT+MQTTCONN=<LinkID>,0
+```
+
+*Example:*
+```
+AT+MQTTCONN=0,0
+```
+
+*Answer:*
+```
+CLOSED
+
+OK
+```
+
+### **AT+MQTTPUB - Publish Message**
+
+Publish a message to a topic using data mode (send length first, then data).
+
+**Command format:**
+```
+AT+MQTTPUB=<LinkID>,<"topic">,<data_length>[,<qos>[,<retain>]]
+```
+
+| Parameter | Description | Range |
+| - | - | - |
+| LinkID | Link ID (must be 0) | 0 |
+| topic | Topic name to publish to | "sensor/data" |
+| data_length | Length of data in bytes | 1-2048 |
+| qos | Quality of Service level (optional, default 0) | 0, 1, 2 |
+| retain | Retain flag (optional, default 0) | 0, 1 |
+
+*Example - Publish "hello world" (11 bytes):*
+
+Step 1: Send publish command with data length:
+```
+AT+MQTTPUB=0,"sensor01",11,1,0
+```
+
+*Answer:*
+```
+OK
+>
+```
+
+Step 2: Send the data when you see `>` prompt:
+```
+hello world
+```
+
+*Answer:*
+```
+Recv 11 bytes
+SEND OK
+```
+
+*Error responses:*
+```
+ERROR                   # Invalid parameters or not connected
+ERROR: Not connected    # Not connected to MQTT broker
+out of memory           # Buffer allocation failed
+SEND FAIL               # Publish operation failed
+```
+
+### **AT+MQTTSUB - Subscribe to Topic**
+
+Subscribe to a topic to receive messages published on it.
+
+**Command:**
+```
+AT+MQTTSUB=<LinkID>,<"topic">,<qos>
+```
+
+| Parameter | Description | Range |
+| - | - | - |
+| LinkID | Link ID (must be 0) | 0 |
+| topic | Topic name to subscribe to | "sensor/#" |
+| qos | Maximum QoS level for subscription | 0, 1, 2 |
+
+*Example:*
+```
+AT+MQTTSUB=0,"sensor01",1
+```
+
+*Answer (success):*
+```
++MQTTSUB:1
+
+OK
+```
+
+*Error responses:*
+```
+ERROR                    # Invalid parameters
+ERROR: Not connected     # Not connected to MQTT broker
+max subscriptions reached # Subscription limit exceeded (max 8)
+subscribe failed         # Broker rejected subscription
+```
+
+**Receiving subscribed messages:**
+
+When a message is received on a subscribed topic, the firmware automatically outputs:
+
+```
++MMTTSUBRECV:<topic>,<length>
+<payload data>
+
+OK
+```
+
+*Example:*
+```
++MMTTSUBRECV:sensor01,11
+hello world
+
+OK
+```
+
+### **AT+MQTTUNSUB - Unsubscribe from Topic**
+
+Unsubscribe from a previously subscribed topic.
+
+**Command:**
+```
+AT+MQTTUNSUB=<LinkID>,<"topic">
+```
+
+| Parameter | Description |
+| - | - |
+| LinkID | Link ID (must be 0) |
+| topic | Topic name to unsubscribe from |
+
+*Example:*
+```
+AT+MQTTUNSUB=0,"sensor01"
+```
+
+*Answer (success):*
+```
++MQTTUNSUB:1
+
+OK
+```
+
+*Error responses:*
+```
+ERROR                    # Invalid parameters
+ERROR: Not connected     # Not connected to MQTT broker
+subscription not found   # Topic was not subscribed
+unsubscribe failed      # Broker rejected unsubscription
+```
+
+### Complete Example
+
+A complete example demonstrating MQTT communication with [Bemfa](https://bemfa.com) MQTT platform:
+
+```bash
+# Step 1: Connect to WiFi
+AT+CWJAP="MyWiFi","password"
+# WIFI CONNECTED
+# WIFI GOT IP
+# OK
+
+# Step 2: Configure MQTT (note: port is required at the end!)
+AT+MQTTUSERCFG=0,1,"f9abbcca015846d69bc392a6c3187216","f9abbcca015846d69bc392a6c3187216","",0,0,"",9501
+# OK
+
+# Step 3: Connect to MQTT broker
+AT+MQTTCONN=0,"bemfa.com",9501
+# CONNECT
+# OK
+
+# Step 4: Subscribe to topic
+AT+MQTTSUB=0,"sensor01",0
+# +MQTTSUB:1
+# OK
+
+# Step 5: Publish a message (data mode)
+AT+MQTTPUB=0,"sensor01",5,0,0
+# OK
+> hello
+# Recv 5 bytes
+# SEND OK
+
+# Step 6: When receiving a message on subscribed topic (automatic output):
+# +MMTTSUBRECV:sensor01,12
+# Hello World!!!
+#
+# OK
+
+# Step 7: Disconnect when finished
+AT+MQTTCONN=0,0
+# CLOSED
+# OK
+```
+
+### Notes
+
+1. **Port is required in MQTTUSERCFG**: The `<port>` parameter must be included as the last parameter in `AT+MQTTUSERCFG`.
+
+2. **Data mode only for PUBLISH**: `AT+MQTTPUB` uses data length mode only (not inline string). You must specify the byte length first, then send the raw data after seeing the `>` prompt.
+
+3. **Connection order**: Always configure (`MQTTUSERCFG`) before connecting (`MQTTCONN`), and connect before subscribing/publishing.
+
+4. **Single link**: Currently only Link ID `0` is supported (single MQTT connection).
+
+5. **Memory constraints**: On ESP-01 with limited RAM, keep subscriptions under 8 and individual messages under 2048 bytes.
+
+---
+
+## License
+
+This project is licensed under the [LGPL-2.1 License](LICENSE).
+
+## Credits
+
+Thanks to [Jiri Bilek](https://github.com/JiriBilek) for the original ESP_ATMod project, and [knolleary](https://github.com/knolleary) for the PubSubClient library.
+
+## Contributing
+
+Issues and Pull Requests are welcome! If you encounter any problems or have suggestions for improvement, please open an issue on GitHub.
+
+---
+
+<p align="center">
+  <strong>If this project helps you, give it a ⭐ !</strong>
+</p>

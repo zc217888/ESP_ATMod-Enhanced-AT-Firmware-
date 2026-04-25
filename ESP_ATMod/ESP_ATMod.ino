@@ -160,6 +160,20 @@ uint8_t gsServersMaxConn = 5;			// command AT+CIPSERVERMAXCONN
 uint32_t gsServerConnTimeout = 180000;	// command AT+CIPSSTO
 
 /*
+ * MQTT Global Variables (definitions)
+ */
+bool gsMqttConnected = false;
+WiFiClient gsMqttClient;
+PubSubClient *gsMqttPubSub = nullptr;
+mqtt_config_t gsMqttConfig = {"", "", "", "", 1883, 1, 60, 0};
+mqtt_subscription_t gsMqttSubscriptions[MAX_MQTT_SUBSCRIPTIONS] = {};
+uint8_t gsMqttSubscriptionCount = 0;
+char *gsMqttPublishData = nullptr;
+uint16_t gsMqttPublishDataLen = 0;
+bool gsMqttPublishing = false;
+uint16_t gsMqttPublishDataRead = 0;
+
+/*
  * Local prototypes
  */
 static bool checkCertificateDuplicatesAndLoad(BearSSL::X509List &importCertList);
@@ -344,6 +358,12 @@ void loop()
 
 	// Check for data and closed connections - only when we can transmit data
 
+	// MQTT loop - process incoming messages and keep-alive
+	if (gsMqttConnected && gsMqttPubSub && gsMqttPubSub->connected())
+	{
+		gsMqttPubSub->loop();
+	}
+
 	if (Serial.availableForWrite())
 	{
 		uint8_t maxCli = 0; // Maximum client number
@@ -524,6 +544,19 @@ void loop()
 				// Stop data reading
 				gsLinkIdReading = -1;
 				dataRead = 0;
+			}
+		}
+		else if (gsMqttPublishing)
+		{
+			// Receive data for MQTT publish
+			gsMqttPublishData[gsMqttPublishDataRead++] = c;
+
+			if (gsMqttPublishDataRead >= gsMqttPublishDataLen)
+			{
+				Serial.printf_P(PSTR("\r\nRecv %d bytes\r\n"), gsMqttPublishDataLen);
+				
+				// Process the publish
+				processMqttPublishData();
 			}
 		}
 		else if (gsCertLoading)

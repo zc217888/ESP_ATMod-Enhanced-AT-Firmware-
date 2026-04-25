@@ -13,14 +13,15 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
  * Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU Lesser General Public License
- * along with this library; if not, see <https://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, see <https://www.gnu.org/licenses/>.
  */
 
 #ifndef ESP_ATMOD_H_
 #define ESP_ATMOD_H_
 
 #include <ESP8266WiFi.h>
+#include <PubSubClient.h>
 
 //#define ETHERNET_CLASS LwipIntfDevPatch<Wiznet5500>
 #define ETHERNET_CS 5
@@ -117,8 +118,41 @@ extern uint16_t gsCipSslSize;	// command AT+CIPSSLSIZE
 extern bool gsSTNPEnabled;		// command AT+CIPSNTPCFG
 extern int8_t gsSTNPTimezone;	// command AT+CIPSNTPCFG
 extern String gsSNTPServer[3];	// command AT+CIPSNTPCFG
-extern uint8_t gsServersMaxConn;	// command AT+CIPSERVERMAXCONN
+extern uint8_t gsServersMaxConn;			// command AT+CIPSERVERMAXCONN
 extern uint32_t gsServerConnTimeout;	// command AT+CIPSSTO
+
+/*
+ * MQTT Configuration and State
+ */
+#define MAX_MQTT_SUBSCRIPTIONS 8
+#define MAX_MQTT_PUBLISH_DATA 2048
+
+typedef struct {
+    String clientId;
+    String username;
+    String password;
+    String server;
+    uint16_t port;
+    uint8_t protocol;  // 0=MQTT 3.1, 1=MQTT 3.1.1
+    uint16_t keepalive;
+    uint8_t disable_clean_session;
+} mqtt_config_t;
+
+typedef struct {
+    String topic;
+    uint8_t qos;
+} mqtt_subscription_t;
+
+extern bool gsMqttConnected;              // MQTT connection status
+extern WiFiClient gsMqttClient;           // TCP client for MQTT
+extern PubSubClient *gsMqttPubSub;        // PubSubClient instance (pointer to allow new/delete)
+extern mqtt_config_t gsMqttConfig;        // MQTT configuration
+extern mqtt_subscription_t gsMqttSubscriptions[MAX_MQTT_SUBSCRIPTIONS]; // Subscriptions list
+extern uint8_t gsMqttSubscriptionCount;   // Number of active subscriptions
+extern char *gsMqttPublishData;           // Buffer for publish data
+extern uint16_t gsMqttPublishDataLen;     // Length of data to publish
+extern bool gsMqttPublishing;             // Flag: currently receiving publish data
+extern uint16_t gsMqttPublishDataRead;    // Bytes read so far
 
 extern const char APP_VERSION[];
 extern const char MSG_OK[] PROGMEM;
@@ -137,5 +171,9 @@ bool applyCipAp();
 int SendData(int clientIndex, int maxSize);
 
 const char *nullIfEmpty(String &s);
+
+/* MQTT callback function */
+void mqttCallback(char* topic, byte* payload, unsigned int length);
+void processMqttPublishData();
 
 #endif /* ESP_ATMOD_H_ */

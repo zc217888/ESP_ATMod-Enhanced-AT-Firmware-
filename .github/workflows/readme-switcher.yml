@@ -1,0 +1,43 @@
+name: README Language Switcher
+
+on:
+  schedule:
+    # Run daily at 00:00 UTC to keep the switcher active
+    - cron: '0 0 * * *'
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  switch-readme:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Check default language preference
+        id: check-language
+        run: |
+          # You can modify this logic based on your preference
+          # Default: English (README.md)
+          # To switch to Chinese, rename files:
+          #   README.md -> README_EN.md
+          #   README_CN.md -> README.md
+          
+          echo "Current default language: English"
+          echo "Chinese version available at: README_CN.md"
+          
+          # List readme files
+          ls -la README*.md
+
+      - name: Display language switch info
+        run: |
+          echo "## 📚 Language Switcher Information" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Available Languages:" >> $GITHUB_STEP_SUMMARY
+          echo "- 🇺🇸 **English**: [README.md](README.md) (Default)" >> $GITHUB_STEP_SUMMARY
+          echo "- 🇨🇳 **中文**: [README_CN.md](README_CN.md)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### How to Switch:" >> $GITHUB_STEP_SUMMARY
+          echo "1. Click the language link at the top of README" >> $GITHUB_STEP_SUMMARY
+          echo "2. Or directly access:" >> $GITHUB_STEP_SUMMARY
+          echo "   - English: \`https://github.com/YOUR_USERNAME/ESP_ATMod\`" >> $GITHUB_STEP_SUMMARY
+          echo "   - Chinese: \`https://github.com/YOUR_USERNAME/ESP_ATMod/blob/master/README_CN.md\`" >> $GITHUB_STEP_SUMMARY
